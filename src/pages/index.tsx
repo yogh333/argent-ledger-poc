@@ -1,123 +1,225 @@
-import Head from 'next/head'
-import Image from 'next/image'
-import { Inter } from 'next/font/google'
-import styles from '@/styles/Home.module.css'
+import Head from "next/head";
+import { Inter } from "next/font/google";
+import styles from "@/styles/Home.module.css";
+import LedgerETH from "@ledgerhq/hw-app-eth";
+import { StarknetClient as LedgerStark } from "@ledgerhq/hw-app-starknet";
+import TransportWebHID from "@ledgerhq/hw-transport-webhid";
+import { useState } from "react";
+import {
+  Account,
+  AccountInterface,
+  CairoCustomEnum,
+  Call,
+  CallData,
+  DeployAccountContractPayload,
+  RpcProvider,
+  constants,
+  hash
+} from "starknet";
+import {
+  STARKNET_DERIVATE_PATH,
+  MULTISIG_CLASS_HASH,
+  ETH_DERIVATE_PATH
+} from "@/constants";
+import { MultisigEthSigner } from "@/service/multisigEthSigner";
+import { MultisigStarknetSigner } from "@/service/multisigStarknetSigner";
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = Inter({ subsets: ["latin"] });
 
 export default function Home() {
+  const [eth, setEth] = useState<LedgerETH | null>(null);
+  const [stark, setStark] = useState<LedgerStark | null>(null);
+  const [messageHash, setMessageHash] = useState<string>();
+  const [ethPublicKey, setEthPublicKey] = useState<string>();
+  const [starkPublicKey, setStarkPublicKey] = useState<string>();
+  const [multisig, setMultisig] = useState<AccountInterface>();
+  const [txHash, setTxHash] = useState<string>();
+
+  // const onConnectLedger = async () => {
+  //   const transport = await TransportWebHID.create();
+
+  //   // const eth = new LedgerETH(transport);
+  //   const stark = new LedgerStark(transport);
+
+  //   const { publicKey, errorMessage, returnCode } = await stark.getPubKey(
+  //     STARKNET_DERIVATE_PATH
+  //   );
+  //   console.log("🚀 ~ onConnectLedger ~  errorMessage:", errorMessage);
+  //   console.log("🚀 ~ onConnectLedger ~ publicKey:", publicKey);
+
+  //   // convert uint8array to hex
+
+  //   setStarkPublicKey(encode.addHexPrefix(encode.buf2hex(publicKey)));
+  //   // setAddress(publicKey);
+  //   setStark(stark);
+  // };
+
+  const onConnectLedger = async () => {
+    const transport = await TransportWebHID.create();
+
+    const eth = new LedgerETH(transport);
+
+    const { address } = await eth.getAddress(ETH_DERIVATE_PATH);
+    setEthPublicKey(address);
+    setEth(eth);
+  };
+
+  const deployAccountTx = async () => {
+    let payload: DeployAccountContractPayload = {
+      classHash: MULTISIG_CLASS_HASH,
+      constructorCalldata: CallData.compile({
+        threshold: 1,
+        signers: [
+          new CairoCustomEnum({
+            Starknet: starkPublicKey,
+            Secp256k1: undefined,
+            Secp256r1: undefined,
+            Eip191: ethPublicKey,
+            Webauthn: undefined
+          })
+        ] // Initial signers
+      }),
+      addressSalt: starkPublicKey || ethPublicKey
+    };
+
+    const accountAddress = hash.calculateContractAddressFromHash(
+      payload.addressSalt!,
+      payload.classHash,
+      payload.constructorCalldata!,
+      0
+    );
+    console.log("🚀 ~ deployAccountTx ~ accountAddress:", accountAddress);
+
+    payload = {
+      ...payload,
+      contractAddress: accountAddress
+    };
+
+    const signer = eth
+      ? new MultisigEthSigner(eth, ETH_DERIVATE_PATH)
+      : stark
+      ? new MultisigStarknetSigner(stark, STARKNET_DERIVATE_PATH)
+      : null;
+
+    const rpcProvider = new RpcProvider({
+      nodeUrl: "https://cloud.argent-api.com/v1/starknet/goerli/rpc/v0.6",
+      chainId: constants.StarknetChainId.SN_GOERLI,
+      headers: {
+        "argent-version": process.env.VERSION || "Unknown version",
+        "argent-client": "argent-x"
+      }
+    });
+
+    if (!signer) {
+      throw new Error("No signer found");
+    }
+
+    const multisig = new Account(rpcProvider, accountAddress, signer, "1");
+
+    try {
+      // Check if already deployed
+      await multisig.getClassHashAt(accountAddress);
+      setMultisig(multisig);
+    } catch {
+      const { suggestedMaxFee } = await multisig.estimateAccountDeployFee(
+        payload,
+        { skipValidate: false }
+      );
+
+      const response = await multisig.deployAccount(payload, {
+        maxFee: suggestedMaxFee
+      });
+      console.log("🚀 ~ deployAccountTx ~ response:", response);
+
+      setMultisig(multisig);
+      setTxHash(response.transaction_hash);
+    }
+  };
+
+  const signTransaction = async () => {
+    if (!multisig) {
+      throw new Error("No multisig found");
+    }
+
+    const transferCall: Call = {
+      contractAddress:
+        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+      entrypoint: "transfer",
+      calldata: [multisig.address, "1000", "0"]
+    };
+
+    const signer = eth
+      ? new MultisigEthSigner(eth, ETH_DERIVATE_PATH)
+      : stark
+      ? new MultisigStarknetSigner(stark, STARKNET_DERIVATE_PATH)
+      : null;
+
+    const rpcProvider = new RpcProvider({
+      nodeUrl: "https://cloud.argent-api.com/v1/starknet/goerli/rpc/v0.6",
+      chainId: constants.StarknetChainId.SN_GOERLI,
+      headers: {
+        "argent-version": process.env.VERSION || "Unknown version",
+        "argent-client": "argent-x"
+      }
+    });
+
+    if (!signer) {
+      throw new Error("No signer found");
+    }
+
+    const { suggestedMaxFee } = await multisig.estimateInvokeFee(transferCall, {
+      skipValidate: false
+    });
+    console.log("🚀 ~ signTransaction ~ suggestedMaxFee:", suggestedMaxFee);
+
+    const response = await multisig.execute(transferCall, undefined, {
+      maxFee: suggestedMaxFee
+    });
+
+    setTxHash(response.transaction_hash);
+  };
+
   return (
     <>
       <Head>
-        <title>Create Next App</title>
+        <title>Ledger-Argent Test</title>
         <meta name="description" content="Generated by create next app" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
       <main className={styles.main}>
-        <div className={styles.description}>
-          <p>
-            Get started by editing&nbsp;
-            <code className={styles.code}>src/pages/index.tsx</code>
+        <h1 className={styles.title}>Ledger-Argent Test</h1>
+        <section className={styles.section}>
+          <p className={styles.description}>
+            This is a test for the Ledger-Argent company
           </p>
-          <div>
-            <a
-              href="https://vercel.com?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              By{' '}
-              <Image
-                src="/vercel.svg"
-                alt="Vercel Logo"
-                className={styles.vercelLogo}
-                width={100}
-                height={24}
-                priority
-              />
-            </a>
+          <div className={styles.buttons}>
+            {!ethPublicKey && !starkPublicKey ? (
+              <button className={styles.button} onClick={onConnectLedger}>
+                Connect ledger
+              </button>
+            ) : (
+              <p>{ethPublicKey ? ethPublicKey : starkPublicKey}</p>
+            )}
           </div>
-        </div>
+          {ethPublicKey || starkPublicKey ? (
+            <div className={styles.buttons}>
+              {multisig ? (
+                <button className={styles.button} onClick={signTransaction}>
+                  Sign transaction
+                </button>
+              ) : (
+                <button className={styles.button} onClick={deployAccountTx}>
+                  Deploy Multisig
+                </button>
+              )}
+            </div>
+          ) : null}
 
-        <div className={styles.center}>
-          <Image
-            className={styles.logo}
-            src="/next.svg"
-            alt="Next.js Logo"
-            width={180}
-            height={37}
-            priority
-          />
-          <div className={styles.thirteen}>
-            <Image
-              src="/thirteen.svg"
-              alt="13"
-              width={40}
-              height={31}
-              priority
-            />
-          </div>
-        </div>
-
-        <div className={styles.grid}>
-          <a
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-            className={styles.card}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <h2 className={inter.className}>
-              Docs <span>-&gt;</span>
-            </h2>
-            <p className={inter.className}>
-              Find in-depth information about Next.js features and&nbsp;API.
-            </p>
-          </a>
-
-          <a
-            href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-            className={styles.card}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <h2 className={inter.className}>
-              Learn <span>-&gt;</span>
-            </h2>
-            <p className={inter.className}>
-              Learn about Next.js in an interactive course with&nbsp;quizzes!
-            </p>
-          </a>
-
-          <a
-            href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-            className={styles.card}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <h2 className={inter.className}>
-              Templates <span>-&gt;</span>
-            </h2>
-            <p className={inter.className}>
-              Discover and deploy boilerplate example Next.js&nbsp;projects.
-            </p>
-          </a>
-
-          <a
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-            className={styles.card}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <h2 className={inter.className}>
-              Deploy <span>-&gt;</span>
-            </h2>
-            <p className={inter.className}>
-              Instantly deploy your Next.js site to a shareable URL
-              with&nbsp;Vercel.
-            </p>
-          </a>
-        </div>
+          {messageHash && <p>{messageHash}</p>}
+          {txHash && <p>Tx Hash: {txHash}</p>}
+        </section>
       </main>
     </>
-  )
+  );
 }
