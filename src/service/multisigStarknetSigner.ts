@@ -24,7 +24,7 @@ import {
   num,
   cairo
 } from "starknet";
-import { StarknetClient as LedgerStark } from "@ledgerhq/hw-app-starknet";
+import { Stark as LedgerStark } from "@ledgerhq/hw-app-starknet";
 import { hexToSignature, signatureToHex } from "viem";
 
 export class MultisigStarknetSigner implements SignerInterface {
@@ -40,7 +40,7 @@ export class MultisigStarknetSigner implements SignerInterface {
     accountAddress: string
   ): Promise<Signature> {
     const msgHash = typedData.getMessageHash(data, accountAddress);
-    const sig = await this.stark.signHash(this.derivatePath, msgHash);
+    const sig = await this.stark.sign(this.derivatePath, msgHash);
 
     const publicKey = await this.getPubKey();
 
@@ -91,7 +91,7 @@ export class MultisigStarknetSigner implements SignerInterface {
 
     console.log("🚀 ~ MultisigSigner ~ msgHash:", msgHash);
 
-    const sig = await this.stark.signHash(this.derivatePath, msgHash);
+    const sig = await this.stark.sign(this.derivatePath, msgHash);
 
     const publicKey = await this.getPubKey();
 
@@ -139,7 +139,7 @@ export class MultisigStarknetSigner implements SignerInterface {
 
     console.log("🚀 ~ MultisigSigner ~ msgHash:", msgHash);
 
-    const sig = await this.stark.signHash(this.derivatePath, msgHash);
+    const sig = await this.stark.sign(this.derivatePath, msgHash);
 
     // const signedHash = "0x" + r + s + v.toString(16);
 

@@ -2,7 +2,7 @@ import Head from "next/head";
 import { Inter } from "next/font/google";
 import styles from "@/styles/Home.module.css";
 import LedgerETH from "@ledgerhq/hw-app-eth";
-import { StarknetClient as LedgerStark } from "@ledgerhq/hw-app-starknet";
+import { Stark as LedgerStark } from "@ledgerhq/hw-app-starknet";
 import TransportWebHID from "@ledgerhq/hw-transport-webhid";
 import { useState } from "react";
 import {
@@ -171,15 +171,6 @@ export default function Home() {
       : stark
       ? new MultisigStarknetSigner(stark, STARKNET_DERIVATE_PATH)
       : null;
-
-    const rpcProvider = new RpcProvider({
-      nodeUrl: "https://cloud.argent-api.com/v1/starknet/goerli/rpc/v0.6",
-      chainId: constants.StarknetChainId.SN_GOERLI,
-      headers: {
-        "argent-version": process.env.VERSION || "Unknown version",
-        "argent-client": "argent-x"
-      }
-    });
 
     if (!signer) {
       throw new Error("No signer found");
