@@ -33,6 +33,7 @@ export default function Home() {
   const [ethPublicKey, setEthPublicKey] = useState<string>();
   const [starkPublicKey, setStarkPublicKey] = useState<string>();
   const [multisig, setMultisig] = useState<AccountInterface>();
+  const [multisigAddress, setMultisigAddress] = useState<string>();
   const [txHash, setTxHash] = useState<string>();
 
   // const onConnectLedger = async () => {
@@ -62,37 +63,50 @@ export default function Home() {
     const { address } = await eth.getAddress(ETH_DERIVATE_PATH);
     setEthPublicKey(address);
     setEth(eth);
+
+    const multisigPayload = getDeployAccountPayload(address);
+
+    const multisigAddress = hash.calculateContractAddressFromHash(
+      multisigPayload.addressSalt!,
+      multisigPayload.classHash,
+      multisigPayload.constructorCalldata!,
+      0
+    );
+
+    setMultisigAddress(multisigAddress);
   };
 
-  const deployAccountTx = async () => {
-    let payload: DeployAccountContractPayload = {
+  const getDeployAccountPayload = (
+    ethPubKey?: string,
+    starkPubKey?: string
+  ) => {
+    return {
       classHash: MULTISIG_CLASS_HASH,
       constructorCalldata: CallData.compile({
         threshold: 1,
         signers: [
           new CairoCustomEnum({
-            Starknet: starkPublicKey,
+            Starknet: starkPubKey,
             Secp256k1: undefined,
             Secp256r1: undefined,
-            Eip191: ethPublicKey,
+            Eip191: ethPubKey,
             Webauthn: undefined
           })
         ] // Initial signers
       }),
-      addressSalt: starkPublicKey || ethPublicKey
+      addressSalt: starkPubKey || ethPubKey
     };
+  };
 
-    const accountAddress = hash.calculateContractAddressFromHash(
-      payload.addressSalt!,
-      payload.classHash,
-      payload.constructorCalldata!,
-      0
+  const deployAccountTx = async () => {
+    let payload: DeployAccountContractPayload = getDeployAccountPayload(
+      ethPublicKey,
+      starkPublicKey
     );
-    console.log("🚀 ~ deployAccountTx ~ accountAddress:", accountAddress);
 
     payload = {
       ...payload,
-      contractAddress: accountAddress
+      contractAddress: multisigAddress
     };
 
     const signer = eth
@@ -114,11 +128,15 @@ export default function Home() {
       throw new Error("No signer found");
     }
 
-    const multisig = new Account(rpcProvider, accountAddress, signer, "1");
+    if (!multisigAddress) {
+      throw new Error("No multisig address found");
+    }
+
+    const multisig = new Account(rpcProvider, multisigAddress, signer, "1");
 
     try {
       // Check if already deployed
-      await multisig.getClassHashAt(accountAddress);
+      await multisig.getClassHashAt(multisigAddress);
       setMultisig(multisig);
     } catch {
       const { suggestedMaxFee } = await multisig.estimateAccountDeployFee(
@@ -199,7 +217,14 @@ export default function Home() {
                 Connect ledger
               </button>
             ) : (
-              <p>{ethPublicKey ? ethPublicKey : starkPublicKey}</p>
+              <div className={styles.info}>
+                <div>
+                  Signer: {ethPublicKey ? ethPublicKey : starkPublicKey}
+                </div>
+                {multisigAddress && (
+                  <div>Multisig Address: {multisigAddress}</div>
+                )}
+              </div>
             )}
           </div>
           {ethPublicKey || starkPublicKey ? (
@@ -216,7 +241,6 @@ export default function Home() {
             </div>
           ) : null}
 
-          {messageHash && <p>{messageHash}</p>}
           {txHash && <p>Tx Hash: {txHash}</p>}
         </section>
       </main>

@@ -312,3 +312,12 @@
   width: 100%;
   max-width: var(--max-width);
 }
+
+.info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  text-align: center;
+}
