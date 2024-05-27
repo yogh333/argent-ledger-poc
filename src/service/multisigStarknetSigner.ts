@@ -24,15 +24,16 @@ import {
   num,
   cairo
 } from "starknet";
-import { Stark as LedgerStark } from "@ledgerhq/hw-app-starknet";
+import { StarknetClient as LedgerStark } from "@ledgerhq/hw-app-starknet";
 import { hexToSignature, signatureToHex } from "viem";
 
 export class MultisigStarknetSigner implements SignerInterface {
   constructor(public stark: LedgerStark, public derivatePath: string) {}
 
   async getPubKey(): Promise<string> {
-    const { publicKey } = await this.stark.getPubKey(this.derivatePath);
-    return encode.buf2hex(publicKey);
+    const { publicKey } = await this.stark.getPubKey(this.derivatePath, false);
+
+    return encode.addHexPrefix(encode.buf2hex(publicKey.slice(0, 32)));
   }
 
   async signMessage(
@@ -40,7 +41,7 @@ export class MultisigStarknetSigner implements SignerInterface {
     accountAddress: string
   ): Promise<Signature> {
     const msgHash = typedData.getMessageHash(data, accountAddress);
-    const sig = await this.stark.sign(this.derivatePath, msgHash);
+    const sig = await this.stark.signHash(this.derivatePath, msgHash);
 
     const publicKey = await this.getPubKey();
 
@@ -84,18 +85,15 @@ export class MultisigStarknetSigner implements SignerInterface {
       throw Error("unsupported signTransaction version");
     }
 
-    // if (msgHash.length < 66) {
-    //   msgHash = "0x" + "0".repeat(66 - msgHash.length) + msgHash.slice(2);
-    // }
-    msgHash = encode.sanitizeHex(msgHash);
-
-    console.log("🚀 ~ MultisigSigner ~ msgHash:", msgHash);
-
-    const sig = await this.stark.sign(this.derivatePath, msgHash);
+    const sig = await this.stark.signHash(this.derivatePath, msgHash);
 
     const publicKey = await this.getPubKey();
 
-    return ["0x1", ...this.starknetSignatureType(publicKey, sig)];
+    return [
+      publicKey,
+      encode.addHexPrefix(encode.buf2hex(sig.r)),
+      encode.addHexPrefix(encode.buf2hex(sig.s))
+    ];
   }
 
   public async signDeployAccountTransaction(
@@ -133,21 +131,25 @@ export class MultisigStarknetSigner implements SignerInterface {
       throw Error("unsupported signDeployAccountTransaction version");
     }
 
-    if (msgHash.length < 66) {
-      msgHash = "0x" + "0".repeat(66 - msgHash.length) + msgHash.slice(2);
-    }
+    // if (msgHash.length < 66) {
+    //   msgHash = "0x" + "0".repeat(66 - msgHash.length) + msgHash.slice(2);
+    // }
 
     console.log("🚀 ~ MultisigSigner ~ msgHash:", msgHash);
 
-    const sig = await this.stark.sign(this.derivatePath, msgHash);
+    const sig = await this.stark.signHash(this.derivatePath, msgHash);
+    console.log("🚀 ~ MultisigStarknetSigner ~ sig:", sig);
 
     // const signedHash = "0x" + r + s + v.toString(16);
 
     // const sig = hexToSignature(signedHash);
 
-    const publicKey = await this.getPubKey();
-
-    return ["0x1", ...this.starknetSignatureType(publicKey, sig)];
+    const publicSigner = await this.getPubKey();
+    return [
+      publicSigner,
+      encode.addHexPrefix(encode.buf2hex(sig.r)),
+      encode.addHexPrefix(encode.buf2hex(sig.s))
+    ]; // Intentionally publicSigner is hex and signatures are decimal. Backend should be able to handle this
   }
 
   signDeclareTransaction(
