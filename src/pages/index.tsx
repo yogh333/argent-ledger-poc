@@ -38,7 +38,7 @@ export default function Home() {
   const [txHash, setTxHash] = useState<string>();
 
   const onConnectLedger = async () => {
-    const transport = await TransportWebHID.openConnected();
+    const transport = await TransportWebHID.create();
 
     if (!transport) {
       console.log("🚀 ~ onConnectLedger ~ transport:", transport);
